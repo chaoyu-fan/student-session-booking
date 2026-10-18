@@ -1,0 +1,24 @@
+{% extends 'base.html' %}{% block content %}
+<section class="hero"><span class="pill">无需注册 · 不用邮箱</span><h1>预约会谈时间</h1><p>选择一个适合你的时间，填写姓名并确认即可。预约成功后请保存确认页面。</p></section>
+{% if days %}
+<form method="post" action="/book" class="card">
+<input type="hidden" name="csrf" value="{{csrf_token()}}">
+<div class="trap"><label>请留空<input type="text" name="website" tabindex="-1" autocomplete="off"></label></div>
+<h2>① 选择可预约时间</h2>
+<p class="hint">蓝色按钮表示当前可以预约的时段；已占用时间不会显示。</p>
+<div class="days">
+{% for d in days %}
+<div class="day"><div class="daytitle">{{d.label}}</div><div class="times">
+{% for t in d.times %}<label class="time"><input required type="radio" name="starts_at" value="{{t.value}}"><span>{{t.label}}</span></label>{% endfor %}
+</div></div>
+{% endfor %}
+</div>
+<h2>② 填写必要信息</h2>
+<div class="form-grid"><label>姓名 <span class="required">*</span><input name="name" minlength="2" maxlength="30" autocomplete="name" required placeholder="填写你的姓名"></label>
+<label>班级（可选）<input name="student_class" maxlength="40" placeholder="例如 六年级2班"></label></div>
+{% if access_code %}<label class="field">校内预约码 <span class="required">*</span><input name="access_code" required autocomplete="off" placeholder="由老师提供"></label>{% endif %}
+<p class="privacy">仅用于识别预约，不需要填写心理问题、诊断或咨询原因。不会向其他学生显示你的身份。</p>
+<button class="primary" type="submit">确认预约</button>
+</form>
+{% else %}<div class="card"><h2>暂时没有可预约的时间</h2><p>请过一段时间再查看，或者通过学校现有方式与老师联系。</p></div>{% endif %}
+{% endblock %}

@@ -1,0 +1,8 @@
+{% extends 'base.html' %}{% block title %}预约成功{% endblock %}{% block content %}
+<div class="card receipt"><div class="success">✓</div><h1>{% if record.status == 'active' %}预约成功{% else %}该预约已取消{% endif %}</h1>
+<p class="hint">{% if record.status == 'active' %}已经为你保留以下时段，不需要邮箱确认。请截图保存。{% else %}该时段已取消，请联系老师或重新预约。{% endif %}</p>
+<div class="receipt-time">{{record.starts_at.replace('T',' ')}} – {{record.ends_at[11:]}}</div>
+<p class="hint">请按学校实际约定地点到访。要改期或取消，请通过学校既有联系方式联系老师。</p>
+<a class="button" href="/">返回预约页面</a>
+</div>
+{% endblock %}

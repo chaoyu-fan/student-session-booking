@@ -1,0 +1,10 @@
+<!doctype html>
+<html lang="zh-CN"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{% block title %}预约会谈时间{% endblock %}</title>
+<link rel="stylesheet" href="{{ url_for('static',filename='style.css') }}">
+</head><body><div class="layout"><header class="top"><a href="/" class="brand">日程预约</a><span class="muted">个人会谈 · 时间管理</span></header>
+{% with messages = get_flashed_messages() %}{% if messages %}<div class="alerts">{% for m in messages %}<p role="alert">{{m}}</p>{% endfor %}</div>{% endif %}{% endwith %}
+{% block content %}{% endblock %}
+<footer>如需紧急帮助，请直接联系老师或学校指定的值班人员。本网站不提供紧急求助服务。</footer>
+</div></body></html>

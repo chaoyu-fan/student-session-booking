@@ -1,0 +1,42 @@
+"""Local wall-clock calendar rules for a single teacher."""
+from datetime import date, datetime, timedelta, time
+from zoneinfo import ZoneInfo
+import os
+
+TZ_NAME = os.getenv('BOOKING_TIMEZONE', 'Asia/Shanghai')
+SESSION_MINUTES = int(os.getenv('SESSION_MINUTES', '50'))
+SLOT_MINUTES = int(os.getenv('SLOT_MINUTES', '60'))
+HORIZON_DAYS = int(os.getenv('HORIZON_DAYS', '14'))
+MIN_ADVANCE_HOURS = int(os.getenv('MIN_ADVANCE_HOURS', '3'))
+WORKDAYS = set(int(x) for x in os.getenv('WORKDAYS', '0,1,2,3,4').split(',') if x.strip())
+WINDOWS = [(os.getenv('MORNING_START','09:00'),os.getenv('MORNING_END','12:00')),
+           (os.getenv('AFTERNOON_START','13:30'),os.getenv('AFTERNOON_END','17:30'))]
+
+
+def now_local():
+    return datetime.now(ZoneInfo(TZ_NAME)).replace(tzinfo=None)
+
+
+def slots_for_day(day, now=None):
+    now = now or now_local()
+    if not isinstance(day, date) or day.weekday() not in WORKDAYS:
+        return []
+    if not now.date() <= day < now.date() + timedelta(days=HORIZON_DAYS):
+        return []
+    result=[]
+    for start_txt,end_txt in WINDOWS:
+        start=datetime.combine(day,time.fromisoformat(start_txt))
+        end=datetime.combine(day,time.fromisoformat(end_txt))
+        while start + timedelta(minutes=SESSION_MINUTES) <= end:
+            if start >= now+timedelta(hours=MIN_ADVANCE_HOURS):
+                result.append((start,start+timedelta(minutes=SESSION_MINUTES)))
+            start+=timedelta(minutes=SLOT_MINUTES)
+    return result
+
+
+def is_valid_slot(start,now=None):
+    return any(start == s for s,e in slots_for_day(start.date(),now))
+
+
+def fmt(dt):
+    return dt.strftime('%Y-%m-%dT%H:%M')
