@@ -1,6 +1,31 @@
 {% extends 'base.html' %}{% block title %}老师日程{% endblock %}{% block content %}
 <div class="admin-header"><div><h1>老师日程管理</h1><p class="hint">显示未来 21 天的预约、临时来访及被屏蔽时段</p></div>
 <form method="post" action="/admin/logout"><input type="hidden" name="csrf" value="{{csrf_token()}}"><button class="small" type="submit">安全退出</button></form></div>
+<div class="card" id="school-schedule">
+<h2>学校课程表 · 每周自动屏蔽授课时间</h2>
+<p class="hint">已根据真实学校可能存在的八节课结构提供演示铃声时间；<strong>不是本校确认时间</strong>。请先填写学校实际上下课时间、每周课程，再点击“确认课表并开放预约”。系统会自动屏蔽上课时间及前后各 10 分钟。</p>
+<p class="status-line"><strong>状态：</strong>{% if school.confirmed %}<span class="enabled">课程时间已确认，预约已开放</span>{% else %}<span class="pending">尚未确认，学生预约暂停</span>{% endif %}</p>
+<form method="post" action="/admin/school/import" enctype="multipart/form-data" class="school-import">
+<input type="hidden" name="csrf" value="{{csrf_token()}}">
+<label>导入已有课表 JSON（仅管理员本地上传，不会上传 GitHub）<input type="file" accept=".json,application/json" name="timetable" required></label>
+<button class="small" type="submit">导入为草稿</button></form>
+<form method="post" action="/admin/school">
+<input type="hidden" name="csrf" value="{{csrf_token()}}">
+<div class="period-inputs">
+{% for period in school.periods %}
+<label>第{{period.period}}节 <input type="time" name="start_{{period.period}}" value="{{period.starts_at}}" required> 至 <input type="time" name="end_{{period.period}}" value="{{period.ends_at}}" required></label>
+{% endfor %}
+</div>
+<div class="scroll-table"><table class="school-grid">
+<thead><tr><th>节次</th>{% for day in ['星期一','星期二','星期三','星期四','星期五'] %}<th>{{day}}</th>{% endfor %}</tr></thead>
+<tbody>{% for period in school.periods %}<tr><th>第{{period.period}}节</th>{% for day in range(5) %}
+<td><input aria-label="星期{{'一二三四五'[day]}}第{{period.period}}节" name="lesson_{{day}}_{{period.period}}" maxlength="40" placeholder="无课" value="{{school.lessons.get((day,period.period),'')}}"></td>
+{% endfor %}</tr>{% endfor %}</tbody></table></div>
+<p class="hint">例如填写「初一(8)」表示这一节给该班上课；留空代表没有固定课程。修改已确认的课表时，如果与现有学生预约冲突，系统会拒绝保存，避免悄悄覆盖预约。</p>
+<div class="school-actions"><button type="submit" name="action" value="draft" class="small">保存为草稿并暂停预约</button>
+<button type="submit" name="action" value="activate" class="primary" onclick="return confirm('已核对学校真实的八节课时间和老师课程安排？确认后学生将能预约无课时段。')">确认课表并开放预约</button>
+{% if school.confirmed %}<button type="submit" name="action" value="pause" class="small danger" formnovalidate>暂停开放预约</button>{% endif %}</div>
+</form></div>
 <div class="card"><h2>快速添加临时来访 / 不可预约时间</h2>
 <form method="post" action="/admin/event"><input type="hidden" name="csrf" value="{{csrf_token()}}">
 <div class="form-grid"><label>类型<select name="kind"><option value="walkin">学生临时来访</option><option value="block">会议 / 请假 / 不开放预约</option></select></label>

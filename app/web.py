@@ -1,5 +1,6 @@
 """Single-teacher, Chinese-language appointment website. No email required."""
 import hmac
+import json
 import os
 import secrets
 import threading
@@ -87,7 +88,7 @@ def health():
 
 @app.get('/')
 def index():
-    return render_template('index.html',days=candidate_days(),access_code=bool(os.getenv('BOOKING_ACCESS_CODE')))
+    return render_template('index.html',days=candidate_days(),access_code=bool(os.getenv('BOOKING_ACCESS_CODE')),school_confirmed=storage.school_snapshot()['confirmed'])
 
 
 @app.post('/book')
@@ -162,7 +163,7 @@ def logout():
 def dashboard():
     today=schedule.now_local().date()
     rows=storage.list_events(today.isoformat(),(today+timedelta(days=21)).isoformat())
-    return render_template('admin.html',events=rows,today=today.isoformat(),day_end=(today+timedelta(days=21)).isoformat())
+    return render_template('admin.html',events=rows,today=today.isoformat(),day_end=(today+timedelta(days=21)).isoformat(),school=storage.school_snapshot())
 
 
 @app.post('/admin/event')
@@ -188,6 +189,50 @@ def add_event():
         flash('已添加到日程')
     except ValueError as ex:
         flash(str(ex))
+    return redirect(url_for('dashboard'))
+
+
+@app.post('/admin/school')
+@teacher_required
+def save_school():
+    verify_csrf()
+    action=request.form.get('action','draft')
+    if action not in ('draft','activate','pause'):
+        abort(400)
+    if action=='pause':
+        storage.pause_school_bookings()
+        flash('已暂停学生在线预约；已有预约不会自动取消')
+        return redirect(url_for('dashboard'))
+    try:
+        periods=[(request.form[f'start_{n}'],request.form[f'end_{n}']) for n in range(1,9)]
+        lessons={(day,n):request.form.get(f'lesson_{day}_{n}','').strip()
+                 for n in range(1,9) for day in range(5)}
+        storage.save_school_schedule(periods,lessons,action=='activate')
+        flash('课程表已保存并开放预约' if action=='activate' else '已保存课表草稿；当前学生预约暂停')
+    except (ValueError,KeyError) as ex:
+        flash(str(ex))
+    return redirect(url_for('dashboard'))
+
+
+@app.post('/admin/school/import')
+@teacher_required
+def import_school():
+    verify_csrf()
+    upload=request.files.get('timetable')
+    if not upload:
+        flash('请先选择本地课表 JSON 文件')
+        return redirect(url_for('dashboard'))
+    try:
+        obj=json.loads(upload.read().decode('utf-8'))
+        periods=obj['periods']
+        lessons={(int(row['weekday']),int(row['period'])):str(row['class_name'])
+                 for row in obj['lessons']}
+        if len(lessons)!=len(obj['lessons']):
+            raise ValueError('课表有重复节次')
+        storage.save_school_schedule(periods,lessons,False)
+        flash('课程表已导入为草稿，请逐项核对实际铃声时间后再开放预约')
+    except (ValueError,KeyError,TypeError,UnicodeDecodeError,json.JSONDecodeError) as ex:
+        flash(f'课表文件无效：{ex}')
     return redirect(url_for('dashboard'))
 
 

@@ -24,6 +24,8 @@ class WebTests(unittest.TestCase):
         self.tmp=tempfile.TemporaryDirectory()
         self.web.storage.DB_PATH=self.tmp.name+'/db.sqlite3'
         self.web.storage.init_db()
+        periods=[(p['starts_at'],p['ends_at']) for p in self.web.storage.school_snapshot()['periods']]
+        self.web.storage.save_school_schedule(periods,{(0,1):'测试课堂'},True)
         self.client=self.web.app.test_client()
 
     def tearDown(self):

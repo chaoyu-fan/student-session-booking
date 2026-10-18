@@ -30,3 +30,12 @@
 - 非工作日例外时间在线设置（目前配置文件中的每周规律 + 老师后台屏蔽）
 - 真正日/周拖拽日历（目前是时间段选择 + 老师列表）
 - 自动访问审计和高可用容灾
+
+## Teacher's school timetable
+- [ ] Before bell-time confirmation the public booking page displays no slots.
+- [ ] Admin displays editable 8-period bell times and weekday × period class grid.
+- [ ] Actual teacher timetable is entered privately in the admin/database, not the public repository.
+- [ ] Students cannot book during recurring class hours including 10-minute buffers.
+- [ ] Admin walk-in is refused when it overlaps a recurring class.
+- [ ] Changing school times does not silently invalidate existing bookings.
+- [ ] Teacher confirms pupils can actually attend sessions (teacher free alone is not sufficient).

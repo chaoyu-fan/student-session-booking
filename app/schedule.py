@@ -23,12 +23,18 @@ def slots_for_day(day, now=None):
         return []
     if not now.date() <= day < now.date() + timedelta(days=HORIZON_DAYS):
         return []
+    from . import storage
+    blocked = storage.public_school_intervals(day)
+    if blocked is None:
+        return []  # Unconfirmed bell times must not silently allow real bookings.
     result=[]
     for start_txt,end_txt in WINDOWS:
         start=datetime.combine(day,time.fromisoformat(start_txt))
         end=datetime.combine(day,time.fromisoformat(end_txt))
         while start + timedelta(minutes=SESSION_MINUTES) <= end:
-            if start >= now+timedelta(hours=MIN_ADVANCE_HOURS):
+            if (start >= now+timedelta(hours=MIN_ADVANCE_HOURS) and
+                not any(start<right and start+timedelta(minutes=SESSION_MINUTES)>left
+                        for left,right in blocked)):
                 result.append((start,start+timedelta(minutes=SESSION_MINUTES)))
             start+=timedelta(minutes=SLOT_MINUTES)
     return result

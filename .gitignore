@@ -8,3 +8,5 @@ secrets/
 backups/
 .DS_Store
 .pytest_cache/
+*.private.json
+private/
