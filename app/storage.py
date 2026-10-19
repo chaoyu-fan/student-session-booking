@@ -60,6 +60,8 @@ def init_db():
           student TEXT NOT NULL DEFAULT '',
           student_class TEXT NOT NULL DEFAULT '',
           note TEXT NOT NULL DEFAULT '',
+          topic TEXT NOT NULL DEFAULT '',
+          session_type TEXT NOT NULL DEFAULT 'regular',
           starts_at TEXT NOT NULL,
           ends_at TEXT NOT NULL,
           status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','cancelled')),
@@ -86,6 +88,12 @@ def init_db():
           enabled INTEGER NOT NULL DEFAULT 1 CHECK(enabled IN (0,1))
         );
         ''')
+        # Live SQLite migration: preserve every previous booking and its status.
+        existing = {row['name'] for row in db.execute('PRAGMA table_info(events)')}
+        if 'topic' not in existing:
+            db.execute("ALTER TABLE events ADD COLUMN topic TEXT NOT NULL DEFAULT ''")
+        if 'session_type' not in existing:
+            db.execute("ALTER TABLE events ADD COLUMN session_type TEXT NOT NULL DEFAULT 'regular'")
         db.execute("INSERT OR IGNORE INTO app_settings(key,value) VALUES('school_confirmed','0')")
         confirmed = is_school_confirmed(db)
         for i, (begin, end) in enumerate(DEFAULT_BELLS, start=1):
@@ -153,9 +161,9 @@ def teaching_intervals(db, day, buffer_minutes=None):
     return result
 
 
-def school_intervals(db, day):
+def school_intervals(db, day, ignore_exercise=False):
     result = teaching_intervals(db, day)
-    if day.weekday() < 5:
+    if not ignore_exercise and day.weekday() < 5:
         row = db.execute("SELECT starts_at,ends_at,enabled FROM school_activities WHERE code='morning_exercise'").fetchone()
         if row and row['enabled']:
             result.append((datetime.combine(day,time.fromisoformat(row['starts_at'])),
@@ -163,11 +171,11 @@ def school_intervals(db, day):
     return result
 
 
-def overlaps_school(db,start,end):
+def overlaps_school(db,start,end,ignore_exercise=False):
     begin=datetime.fromisoformat(start)
     finish=datetime.fromisoformat(end)
     for day in {begin.date(),finish.date()}:
-        if any(begin<right and finish>left for left,right in school_intervals(db,day)):
+        if any(begin<right and finish>left for left,right in school_intervals(db,day,ignore_exercise=ignore_exercise)):
             return True
     return False
 
@@ -177,6 +185,14 @@ def public_school_intervals(day):
         if not is_school_confirmed(db):
             return None
         return school_intervals(db,day)
+
+
+def public_teaching_intervals(day):
+    """Exclude only fixed lessons; used by the permitted 20-minute morning exception."""
+    with connect() as db:
+        if not is_school_confirmed(db):
+            return None
+        return teaching_intervals(db, day)
 
 
 def parse_interval(start, end, label):
@@ -220,11 +236,11 @@ def save_school_schedule(periods, lessons, activate, exercise=None, exercise_ena
             if class_name.strip():
                 db.execute('INSERT INTO teacher_lessons(weekday,period,class_name) VALUES(?,?,?)',
                            (day,period,class_name.strip()))
-        future=db.execute('''SELECT starts_at,ends_at FROM events
+        future=db.execute('''SELECT starts_at,ends_at,session_type FROM events
             WHERE status='active' AND kind IN ('booking','walkin') AND ends_at >= ?''',
             (datetime.now().strftime('%Y-%m-%d'),)).fetchall()
         for e in future:
-            if overlaps_school(db,e['starts_at'],e['ends_at']):
+            if overlaps_school(db,e['starts_at'],e['ends_at'],ignore_exercise=e['session_type']=='emergency'):
                 raise ValueError('新课表或课间操与已确认的学生预约/临时会谈冲突，请先处理预约后再保存')
         db.execute('UPDATE app_settings SET value=? WHERE key=?',('1' if activate else '0','school_confirmed'))
         db.commit()
@@ -240,21 +256,34 @@ def overlaps(db,start,end):
                       (end,start)).fetchone() is not None
 
 
-def create_event(kind,start,end,student='',student_class='',note=''):
+def create_event(kind,start,end,student='',student_class='',note='',topic='',session_type='regular'):
     if kind not in ('booking','walkin','block') or end<=start:
         raise ValueError('无效时间范围')
+    if session_type not in ('regular', 'after_school', 'emergency'):
+        raise ValueError('无效会谈类型')
+    if kind != 'booking' and (session_type != 'regular' or topic):
+        raise ValueError('临时日程不能设置学生预约类型或咨询主题')
+    if topic and topic not in ('学习焦虑','人际关系困扰','情绪低落','适应困难','躯体化症状','其他'):
+        raise ValueError('无效咨询主题')
+    # Only this exact 20-minute slot is allowed to override morning exercise.
+    is_emergency = (session_type == 'emergency')
+    if is_emergency:
+        begin, finish = datetime.fromisoformat(start), datetime.fromisoformat(end)
+        if not (begin.weekday() in range(4) and begin.strftime('%H:%M') == '09:50'
+                and finish.date() == begin.date() and finish.strftime('%H:%M') == '10:10'):
+            raise ValueError('紧急咨询仅开放周一至周四09:50–10:10')
     token=secrets.token_urlsafe(18)
     with connect() as db:
         db.execute('BEGIN IMMEDIATE')
         if kind=='booking' and not is_school_confirmed(db):
             raise ValueError('老师尚未核对课程铃声时间，暂不开放预约')
-        if kind in ('booking','walkin') and overlaps_school(db,start,end):
+        if kind in ('booking','walkin') and overlaps_school(db,start,end,ignore_exercise=is_emergency):
             raise ValueError('这个时段与老师的固定授课时间或课间操冲突')
         if overlaps(db,start,end):
             db.rollback()
             raise ValueError('这个时段刚刚被预约或占用，请选择其他时间')
-        db.execute('''INSERT INTO events(id,kind,student,student_class,note,starts_at,ends_at)
-                      VALUES(?,?,?,?,?,?,?)''',(token,kind,student,student_class,note,start,end))
+        db.execute('''INSERT INTO events(id,kind,student,student_class,note,topic,session_type,starts_at,ends_at)
+                      VALUES(?,?,?,?,?,?,?,?,?)''',(token,kind,student,student_class,note,topic,session_type,start,end))
         db.commit()
     return token
 
