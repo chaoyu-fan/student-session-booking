@@ -51,16 +51,16 @@ class BookingStoreTests(unittest.TestCase):
 
     def test_teacher_class_blocks_recurring_booking_and_walkin(self):
         storage.save_school_schedule(self.periods,{(0,3):'初二(9)'},True)
-        # May 6, 2030 is a Monday. Period 3: 10:15-11:00, +10min buffer.
+        # May 6, 2030 is a Monday. Period 3: 10:15-11:00; no extra buffer.
         self.assertEqual(__import__('datetime').date(2030,5,6).weekday(),0)
         with self.assertRaisesRegex(ValueError, '固定授课'):
-            storage.create_event('booking','2030-05-06T11:00','2030-05-06T11:50','测试')
+            storage.create_event('booking','2030-05-06T10:50','2030-05-06T11:40','测试')
         with self.assertRaisesRegex(ValueError, '固定授课'):
             storage.create_event('walkin','2030-05-13T10:10','2030-05-13T10:30','测试')
         storage.create_event('booking','2030-05-06T16:30','2030-05-06T17:20','测试')
 
     def test_reject_course_edit_conflicting_with_existing_appointment(self):
-        storage.create_event('booking','2030-05-06T11:00','2030-05-06T11:50','测试')
+        storage.create_event('booking','2030-05-06T10:50','2030-05-06T11:40','测试')
         with self.assertRaisesRegex(ValueError,'已确认'):
             storage.save_school_schedule(self.periods,{(0,3):'初二(9)'},True)
         self.assertEqual(storage.school_snapshot()['lessons'],{(0,1):'测试课堂'})
@@ -90,7 +90,7 @@ class BookingStoreTests(unittest.TestCase):
             storage.create_event('walkin','2030-05-13T10:05','2030-05-13T10:25','测试')
         now=__import__('datetime').datetime(2030,5,6,7,0)
         slots=schedule.slots_for_day(now.date(),now)
-        self.assertFalse(any(s.hour in (9,10) for s,e in slots))
+        self.assertFalse(any(s < __import__('datetime').datetime(2030,5,6,10,15) and e > __import__('datetime').datetime(2030,5,6,9,45) for s,e in slots))
         self.assertTrue(any(s.hour==11 for s,e in slots))
 
     def test_eighth_period_is_forty_minute_afterschool_only_when_assigned(self):
@@ -124,6 +124,64 @@ class BookingStoreTests(unittest.TestCase):
         future=now.date()+timedelta(days=5)
         self.assertTrue(all(e>s for s,e in schedule.slots_for_day(future,now)))
         self.assertFalse(schedule.is_valid_slot(now-timedelta(days=10),now))
+
+
+
+
+class PhotoPresetTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        storage.DB_PATH = self.tmp.name + '/photo.sqlite3'
+        storage.init_db()
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_auto_activate_and_exact_22_lessons(self):
+        snap = storage.school_snapshot()
+        self.assertTrue(snap['confirmed'])
+        self.assertEqual(len(snap['lessons']), 22)
+        self.assertEqual([sum(day == d for day, period in snap['lessons']) for d in range(5)], [6,5,6,2,3])
+        self.assertEqual(set(snap['lessons']), set(storage.photo_lessons()))
+        self.assertEqual(snap['exercise']['enabled'], 1)
+        self.assertEqual(snap['periods'][7]['starts_at'], '16:55')
+        self.assertEqual(snap['periods'][7]['ends_at'], '17:35')
+
+    def test_daily_window_and_photo_conflicts(self):
+        from datetime import datetime
+        self.assertEqual(schedule.SESSION_MINUTES, 50)
+        self.assertEqual(schedule.SLOT_MINUTES, 15)
+        self.assertEqual(schedule.WINDOWS, [('08:00','17:35')])
+        # Monday 2030-05-06: period 2 blocks 09:00–09:45.
+        monday = datetime(2030,5,6,4,0)
+        slots = schedule.slots_for_day(monday.date(), monday)
+        self.assertIn(('08:00','08:50'), [(s.strftime('%H:%M'),e.strftime('%H:%M')) for s,e in slots])
+        self.assertIn(('16:45','17:35'), [(s.strftime('%H:%M'),e.strftime('%H:%M')) for s,e in slots])
+        self.assertFalse(any(s < datetime(2030,5,6,9,45) and e > datetime(2030,5,6,9,0) for s,e in slots))
+        self.assertTrue(all(s >= datetime(2030,5,6,8) and e <= datetime(2030,5,6,17,35) for s,e in slots))
+        self.assertTrue(all(not (s < datetime(2030,5,6,10,15) and e > datetime(2030,5,6,9,45)) for s,e in slots))
+
+    def test_lunch_available_on_free_day(self):
+        from datetime import datetime
+        thursday = datetime(2030,5,9,7)
+        slots = schedule.slots_for_day(thursday.date(), thursday)
+        self.assertTrue(any(s.hour==12 for s,e in slots))
+        self.assertTrue(any(s.hour==13 for s,e in slots))
+
+    def test_idempotent_and_preserves_custom_schedule(self):
+        storage.init_db()
+        self.assertEqual(len(storage.school_snapshot()['lessons']),22)
+        storage.save_school_schedule(storage.DEFAULT_BELLS, {(0, 1): '自定义课程'}, True)
+        storage.init_db()
+        self.assertEqual(storage.school_snapshot()['lessons'],{(0,1):'自定义课程'})
+
+    def test_force_preset_conflict_rejected(self):
+        storage.save_school_schedule(storage.DEFAULT_BELLS, {(0,1):'自定义课程'}, True)
+        storage.create_event('booking','2030-05-06T10:20','2030-05-06T11:10','测试')
+        with self.assertRaisesRegex(ValueError,'已确认'):
+            storage.save_school_schedule(storage.DEFAULT_BELLS, storage.photo_lessons(), True,
+                                         exercise=storage.DEFAULT_EXERCISE, exercise_enabled=True)
+        self.assertEqual(storage.school_snapshot()['lessons'],{(0,1):'自定义课程'})
 
 
 if __name__=='__main__': unittest.main()

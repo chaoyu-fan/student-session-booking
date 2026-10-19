@@ -43,3 +43,10 @@
 - [ ] Importing the teacher's private weekly lesson JSON preserves the correct after-school lesson on Tuesday, period 8.
 - [ ] Upgrading an unconfirmed reference timetable fills confirmed bell times; upgrading a previously activated customized schedule does not silently overwrite it.
 - [ ] Teacher confirms pupils can actually attend sessions (teacher free alone is not sufficient).
+
+## 照片预设与全天预约
+- [ ] 全新数据库自动创建22节固定授课，分布为周一至周五6/5/6/2/3节，并默认开放预约。
+- [ ] 每天只在08:00–17:35之间提供完整50分钟会谈候选时间，不允许延长至17:35之后。
+- [ ] 09:45–10:15课间操和22节固定课没有可预约的重叠时段；午间无课也可以被预约。
+- [ ] 课程缓冲为0，15分钟候选步长。线上已有预约仍然阻止重叠请求。
+- [ ] 从旧版迁移保留已确认预约和自定义课表；按要求重置课表前必须备份和检查冲突。

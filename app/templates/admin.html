@@ -1,10 +1,10 @@
 {% extends 'base.html' %}{% block title %}老师日程{% endblock %}{% block content %}
 <div class="admin-header"><div><h1>老师日程管理</h1><p class="hint">显示未来 21 天的预约、临时来访及被屏蔽时段</p></div>
 <form method="post" action="/admin/logout"><input type="hidden" name="csrf" value="{{csrf_token()}}"><button class="small" type="submit">安全退出</button></form></div>
-<div class="card" id="school-schedule">
+<details class="card" id="school-schedule"><summary><strong>固定课程表（已自动导入照片；需要修改时展开）</strong></summary>
 <h2>学校课程表 · 每周自动屏蔽授课时间</h2>
-<p class="hint">已录入老师提供的实际铃声时间：第1–7节每节45分钟，第8节为16:55–17:35的<strong>40分钟课后服务</strong>。第2节后09:45–10:15为30分钟课间操。请仍核对每周具体任课班级，再启用预约。系统默认将固定课程前后各10分钟设为不可预约。</p>
-<p class="status-line"><strong>状态：</strong>{% if school.confirmed %}<span class="enabled">课程时间已确认，预约已开放</span>{% else %}<span class="pending">尚未确认，学生预约暂停</span>{% endif %}</p>
+<p class="hint">已录入老师提供的实际铃声时间：第1–7节每节45分钟，第8节为16:55–17:35的<strong>40分钟课后服务</strong>。第2节后09:45–10:15为30分钟课间操。默认已根据照片屏蔽22节固定授课，无需老师逐项录入。默认不附加课程缓冲，50分钟会谈不得与课程重叠。</p>
+<p class="status-line"><strong>状态：</strong>{% if school.confirmed %}<span class="enabled">已加载照片课表，预约已开放</span>{% else %}<span class="pending">课表未启用，学生预约暂停（请联系部署管理员）</span>{% endif %}</p>
 <form method="post" action="/admin/school/import" enctype="multipart/form-data" class="school-import">
 <input type="hidden" name="csrf" value="{{csrf_token()}}">
 <label>导入已有课表 JSON（仅管理员本地上传，不会上传 GitHub）<input type="file" accept=".json,application/json" name="timetable" required></label>
@@ -30,7 +30,7 @@
 <div class="school-actions"><button type="submit" name="action" value="draft" class="small">保存为草稿并暂停预约</button>
 <button type="submit" name="action" value="activate" class="primary" onclick="return confirm('已核对学校真实的八节课时间和老师课程安排？确认后学生将能预约无课时段。')">确认课表并开放预约</button>
 {% if school.confirmed %}<button type="submit" name="action" value="pause" class="small danger" formnovalidate>暂停开放预约</button>{% endif %}</div>
-</form></div>
+</form></details>
 <div class="card"><h2>快速添加临时来访 / 不可预约时间</h2>
 <form method="post" action="/admin/event"><input type="hidden" name="csrf" value="{{csrf_token()}}">
 <div class="form-grid"><label>类型<select name="kind"><option value="walkin">学生临时来访</option><option value="block">会议 / 请假 / 不开放预约</option></select></label>

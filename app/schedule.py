@@ -5,12 +5,13 @@ import os
 
 TZ_NAME = os.getenv('BOOKING_TIMEZONE', 'Asia/Shanghai')
 SESSION_MINUTES = int(os.getenv('SESSION_MINUTES', '50'))
-SLOT_MINUTES = int(os.getenv('SLOT_MINUTES', '60'))
+SLOT_MINUTES = int(os.getenv('SLOT_MINUTES', '15'))
 HORIZON_DAYS = int(os.getenv('HORIZON_DAYS', '14'))
 MIN_ADVANCE_HOURS = int(os.getenv('MIN_ADVANCE_HOURS', '3'))
 WORKDAYS = set(int(x) for x in os.getenv('WORKDAYS', '0,1,2,3,4').split(',') if x.strip())
-WINDOWS = [(os.getenv('MORNING_START','09:00'),os.getenv('MORNING_END','12:00')),
-           (os.getenv('AFTERNOON_START','13:30'),os.getenv('AFTERNOON_END','17:30'))]
+# A single continuous availability window includes lunch and after-school time.
+# The teacher's weekly lessons, school exercise and occupied events are removed later.
+WINDOWS = [(os.getenv('DAY_START', '08:00'), os.getenv('DAY_END', '17:35'))]
 
 
 def now_local():
@@ -26,7 +27,7 @@ def slots_for_day(day, now=None):
     from . import storage
     blocked = storage.public_school_intervals(day)
     if blocked is None:
-        return []  # Unconfirmed bell times must not silently allow real bookings.
+        return []  # Paused timetable / preset migration conflict.
     result=[]
     for start_txt,end_txt in WINDOWS:
         start=datetime.combine(day,time.fromisoformat(start_txt))

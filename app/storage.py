@@ -15,6 +15,20 @@ DEFAULT_BELLS = [
     ('16:00', '16:45'), ('16:55', '17:35'),  # 第八节：40-minute after-school service
 ]
 DEFAULT_EXERCISE = ('09:45', '10:15')  # school-wide morning exercise
+# Photo supplied by the project owner: weekday 0=Monday, 4=Friday.
+# Only periods are needed for availability; do not publish class labels.
+PHOTO_CLASS_PERIODS = {
+    0: (2, 3, 4, 5, 6, 7),
+    1: (2, 3, 5, 6, 8),
+    2: (2, 3, 4, 5, 6, 7),
+    3: (5, 7),
+    4: (5, 6, 7),
+}
+
+
+def photo_lessons():
+    return {(day, period): '固定授课' for day, periods in PHOTO_CLASS_PERIODS.items() for period in periods}
+
 REFERENCE_BELLS = [
     ('08:00', '08:40'), ('08:55', '09:35'), ('10:05', '10:45'),
     ('11:00', '11:40'), ('12:40', '13:20'), ('13:35', '14:15'),
@@ -90,6 +104,26 @@ def init_db():
         db.execute('''INSERT OR IGNORE INTO school_activities(code,starts_at,ends_at,enabled)
                       VALUES('morning_exercise',?,?,?)''',
                    (*DEFAULT_EXERCISE, 0 if confirmed else 1))
+        # One-time photo preset: fresh installations work immediately, with no
+        # teacher-side upload or confirmation. Existing custom timetables stay intact.
+        # Older empty drafts receive the preset too, unless existing events conflict.
+        if db.execute("SELECT 1 FROM app_settings WHERE key='photo_preset_initialized'").fetchone() is None:
+            n = db.execute('SELECT count(*) FROM teacher_lessons').fetchone()[0]
+            current = [(r['starts_at'], r['ends_at']) for r in
+                       db.execute('SELECT starts_at,ends_at FROM school_periods ORDER BY period')]
+            if n == 0 and not confirmed and current == DEFAULT_BELLS:
+                for (day, period), label in photo_lessons().items():
+                    db.execute('INSERT INTO teacher_lessons(weekday,period,class_name) VALUES(?,?,?)',
+                               (day, period, label))
+                # Do not silently activate an old database with appointments
+                # that overlap newly configured recurring classes.
+                now = datetime.now().strftime('%Y-%m-%d')
+                future = db.execute('''SELECT starts_at, ends_at FROM events
+                    WHERE status='active' AND kind IN ('booking','walkin') AND ends_at >= ?''',
+                    (now,)).fetchall()
+                if not any(overlaps_school(db, e['starts_at'], e['ends_at']) for e in future):
+                    db.execute("UPDATE app_settings SET value='1' WHERE key='school_confirmed'")
+            db.execute("INSERT INTO app_settings(key,value) VALUES('photo_preset_initialized','1')")
 
 
 def is_school_confirmed(db):
@@ -108,7 +142,7 @@ def school_snapshot():
 
 def teaching_intervals(db, day, buffer_minutes=None):
     if buffer_minutes is None:
-        buffer_minutes=int(os.getenv('TEACHING_BUFFER_MINUTES','10'))
+        buffer_minutes=int(os.getenv('TEACHING_BUFFER_MINUTES','0'))
     rows=db.execute('''SELECT p.starts_at,p.ends_at FROM teacher_lessons l
         JOIN school_periods p ON p.period=l.period WHERE l.weekday=?''',(day.weekday(),)).fetchall()
     result=[]
