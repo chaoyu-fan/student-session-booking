@@ -150,25 +150,43 @@ class PhotoPresetTests(unittest.TestCase):
     def test_daily_window_and_photo_conflicts(self):
         from datetime import datetime
         self.assertEqual(schedule.SESSION_MINUTES, 50)
-        self.assertEqual(schedule.SLOT_MINUTES, 15)
         self.assertEqual(schedule.WINDOWS, [('10:00','17:35')])
-        # Monday 2030-05-06: period 2 blocks 09:00–09:45.
         monday = datetime(2030,5,6,4,0)
         slots = schedule.slots_for_day(monday.date(), monday)
-        self.assertFalse(any(s.hour < 10 for s,e in slots))
-        self.assertIn(('16:45','17:35'), [(s.strftime('%H:%M'),e.strftime('%H:%M')) for s,e in slots])
-        self.assertFalse(any(s < datetime(2030,5,6,9,45) and e > datetime(2030,5,6,9,0) for s,e in slots))
-        self.assertTrue(all(s >= datetime(2030,5,6,10) and e <= datetime(2030,5,6,17,35) for s,e in slots))
-        self.assertTrue(all(not (s < datetime(2030,5,6,10,15) and e > datetime(2030,5,6,9,45)) for s,e in slots))
+        # Monday period 3-7 are all taught, period 8 cannot hold 50 minutes.
+        self.assertEqual(slots, [])
+        self.assertFalse(schedule.is_valid_slot(datetime(2030,5,6,16,45),monday))
+        self.assertFalse(schedule.is_valid_slot(datetime(2030,5,6,8,0),monday))
 
-    def test_lunch_available_on_free_day(self):
+    def test_only_free_bell_periods_are_offered(self):
+        from datetime import datetime, date
+        actual = []
+        for day in range(5):
+            d = date(2030,5,6) + timedelta(days=day)
+            slots=schedule.slots_for_day(d, datetime(2030,5,6,4,0))
+            times=[(s.strftime('%H:%M'),e.strftime('%H:%M')) for s,e in slots]
+            actual.append(times)
+            for start,end in slots:
+                self.assertEqual(end-start, timedelta(minutes=50))
+                self.assertLessEqual(end.strftime('%H:%M'),'17:35')
+        self.assertEqual(actual, [
+            [],
+            [('11:15','12:05'),('16:00','16:50')],
+            [],
+            [('10:15','11:05'),('11:15','12:05'),('15:00','15:50')],
+            [('10:15','11:05'),('11:15','12:05')],
+        ])
+        self.assertFalse(any(start=='16:55' for daily in actual for start,end in daily))
+        self.assertFalse(any(start.startswith('12:') or start.startswith('13:') for daily in actual for start,end in daily))
+
+    def test_teacher_rescheduled_period_changes_student_options(self):
         from datetime import datetime
-        thursday = datetime(2030,5,9,7)
-        slots = schedule.slots_for_day(thursday.date(), thursday)
-        self.assertTrue(any(s.hour==12 for s,e in slots))
-        self.assertTrue(any(s.hour==13 for s,e in slots))
-        self.assertIn(('10:15','11:05'),[(s.strftime('%H:%M'),e.strftime('%H:%M')) for s,e in slots])
-        self.assertFalse(schedule.is_valid_slot(datetime(2030,5,9,9,30),thursday))
+        periods=storage.DEFAULT_BELLS
+        storage.save_school_schedule(periods,{(3,4):'新增课程'},True,exercise_enabled=True)
+        thursday=datetime(2030,5,9,7)
+        times=[s.strftime('%H:%M') for s,e in schedule.slots_for_day(thursday.date(),thursday)]
+        self.assertNotIn('11:15',times)
+        self.assertIn('10:15',times)
 
     def test_idempotent_and_preserves_custom_schedule(self):
         storage.init_db()
