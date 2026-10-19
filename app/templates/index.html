@@ -5,7 +5,7 @@
 <input type="hidden" name="csrf" value="{{csrf_token()}}">
 <div class="trap"><label>请留空<input type="text" name="website" tabindex="-1" autocomplete="off"></label></div>
 <h2>① 选择可预约时间</h2>
-<p class="hint">蓝色按钮表示当前可以预约的时段；已占用时间不会显示。</p>
+<p class="hint">选择一个老师没课的节次。每次会谈50分钟，按学校铃声时间开始，可能延续到下课后5分钟；第8节只有40分钟，暂不开放。</p>
 <div class="days">
 {% for d in days %}
 <div class="day"><div class="daytitle">{{d.label}}</div><div class="times">
