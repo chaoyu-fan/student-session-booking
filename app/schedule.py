@@ -7,7 +7,7 @@ TZ_NAME = os.getenv('BOOKING_TIMEZONE', 'Asia/Shanghai')
 SESSION_MINUTES = int(os.getenv('SESSION_MINUTES', '50'))
 SLOT_MINUTES = int(os.getenv('SLOT_MINUTES', '15'))
 HORIZON_DAYS = int(os.getenv('HORIZON_DAYS', '14'))
-MIN_ADVANCE_HOURS = int(os.getenv('MIN_ADVANCE_HOURS', '3'))
+MIN_ADVANCE_HOURS = int(os.getenv('MIN_ADVANCE_HOURS', '0'))
 WORKDAYS = set(int(x) for x in os.getenv('WORKDAYS', '0,1,2,3,4').split(',') if x.strip())
 # A single continuous availability window includes lunch and after-school time.
 # The teacher's weekly lessons, school exercise and occupied events are removed later.
