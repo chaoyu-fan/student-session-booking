@@ -68,12 +68,13 @@ def candidate_days():
     today=schedule.now_local().date()
     end=today+timedelta(days=schedule.HORIZON_DAYS)
     busy=storage.list_events(today.isoformat(),(end+timedelta(days=1)).isoformat())
+    period_by_start={p['starts_at']:p['period'] for p in storage.school_snapshot()['periods']}
     result=[]
     for d in (today+timedelta(days=i) for i in range(schedule.HORIZON_DAYS)):
         times=[]
         for s,e in schedule.slots_for_day(d):
             if not any(ev['starts_at']<schedule.fmt(e) and ev['ends_at']>schedule.fmt(s) for ev in busy):
-                times.append({'value':schedule.fmt(s),'label':s.strftime('%H:%M')})
+                times.append({'value':schedule.fmt(s),'label':f"第{period_by_start[s.strftime('%H:%M')]}节 · {s:%H:%M}–{e:%H:%M}"})
         if times:
             result.append({'day':d.isoformat(),'label':f'{d.month}月{d.day}日 · {"一二三四五六日"[d.weekday()]}','times':times})
     return result
