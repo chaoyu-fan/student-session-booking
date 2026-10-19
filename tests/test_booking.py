@@ -90,7 +90,8 @@ class BookingStoreTests(unittest.TestCase):
             storage.create_event('walkin','2030-05-13T10:05','2030-05-13T10:25','测试')
         now=__import__('datetime').datetime(2030,5,6,7,0)
         slots=schedule.slots_for_day(now.date(),now)
-        self.assertFalse(any(s < __import__('datetime').datetime(2030,5,6,10,15) and e > __import__('datetime').datetime(2030,5,6,9,45) for s,e in slots))
+        self.assertEqual([(s.strftime('%H:%M'),e.strftime('%H:%M')) for s,e in slots
+                          if s.hour<10], [('09:50','10:10')])
         self.assertTrue(any(s.hour==11 for s,e in slots))
 
     def test_eighth_period_is_forty_minute_afterschool_only_when_assigned(self):
@@ -153,8 +154,10 @@ class PhotoPresetTests(unittest.TestCase):
         self.assertEqual(schedule.WINDOWS, [('10:00','17:35')])
         monday = datetime(2030,5,6,4,0)
         slots = schedule.slots_for_day(monday.date(), monday)
-        # Monday period 3-7 are all taught, period 8 cannot hold 50 minutes.
-        self.assertEqual(slots, [])
+        # Monday regular periods 3-7 are taught, but the 20m emergency and
+        # 40m period-8 service are explicit schedule exceptions.
+        self.assertEqual([(s.strftime('%H:%M'),e.strftime('%H:%M')) for s,e in slots],
+                         [('09:50','10:10'),('16:55','17:35')])
         self.assertFalse(schedule.is_valid_slot(datetime(2030,5,6,16,45),monday))
         self.assertFalse(schedule.is_valid_slot(datetime(2030,5,6,8,0),monday))
 
@@ -167,17 +170,74 @@ class PhotoPresetTests(unittest.TestCase):
             times=[(s.strftime('%H:%M'),e.strftime('%H:%M')) for s,e in slots]
             actual.append(times)
             for start,end in slots:
-                self.assertEqual(end-start, timedelta(minutes=50))
+                duration = 20 if start.strftime('%H:%M')=='09:50' else 40 if start.strftime('%H:%M')=='16:55' else 50
+                self.assertEqual(end-start, timedelta(minutes=duration))
                 self.assertLessEqual(end.strftime('%H:%M'),'17:35')
         self.assertEqual(actual, [
-            [],
-            [('11:15','12:05'),('16:00','16:50')],
-            [],
-            [('10:15','11:05'),('11:15','12:05'),('15:00','15:50')],
-            [('10:15','11:05'),('11:15','12:05')],
+            [('09:50','10:10'),('16:55','17:35')],
+            [('09:50','10:10'),('11:15','12:05'),('16:00','16:50')],
+            [('09:50','10:10'),('16:55','17:35')],
+            [('09:50','10:10'),('10:15','11:05'),('11:15','12:05'),('15:00','15:50'),('16:55','17:35')],
+            [('10:15','11:05'),('11:15','12:05'),('16:55','17:35')],
         ])
-        self.assertFalse(any(start=='16:55' for daily in actual for start,end in daily))
+        self.assertNotIn(('16:55','17:35'),actual[1])  # Tuesday 8th is taught
+        self.assertFalse(any(start=='09:50' for start,end in actual[4]))  # Friday no emergency
         self.assertFalse(any(start.startswith('12:') or start.startswith('13:') for daily in actual for start,end in daily))
+
+    def test_emergency_exercise_override_but_still_checks_actual_lessons(self):
+        from datetime import datetime
+        first=datetime(2030,5,6,7,0) # Monday
+        self.assertTrue(schedule.is_valid_slot(datetime(2030,5,6,9,50),first))
+        token=storage.create_event('booking','2030-05-06T09:50','2030-05-06T10:10','测试学生',
+                                   topic='情绪低落',session_type='emergency')
+        record=storage.get_event(token)
+        self.assertEqual(record['topic'],'情绪低落')
+        self.assertEqual(record['session_type'],'emergency')
+        with self.assertRaisesRegex(ValueError,'刚刚被预约'):
+            storage.create_event('booking','2030-05-06T09:50','2030-05-06T10:10','其他学生',
+                                 topic='其他',session_type='emergency')
+        # Editing unrelated teaching periods should preserve a booked emergency.
+        storage.save_school_schedule(storage.DEFAULT_BELLS,storage.photo_lessons(),True,
+                                     exercise_enabled=True)
+        with self.assertRaisesRegex(ValueError,'已确认'):
+            storage.save_school_schedule(storage.DEFAULT_BELLS[:1]+[('09:00','10:00')]+storage.DEFAULT_BELLS[2:],
+                                         storage.photo_lessons(),True,exercise_enabled=True)
+
+    def test_emergency_is_specific_and_regular_exercise_remains_blocked(self):
+        with self.assertRaisesRegex(ValueError,'紧急咨询仅开放'):
+            storage.create_event('booking','2030-05-10T09:50','2030-05-10T10:10','测试',
+                                 session_type='emergency')
+        with self.assertRaisesRegex(ValueError,'课间操'):
+            storage.create_event('booking','2030-05-06T09:50','2030-05-06T10:10','测试',
+                                 session_type='regular')
+        with self.assertRaisesRegex(ValueError,'无效咨询主题'):
+            storage.create_event('booking','2030-05-07T11:15','2030-05-07T12:05','测试',topic='随意描述')
+
+    def test_after_school_can_book_only_if_not_taught(self):
+        from datetime import datetime
+        monday=datetime(2030,5,6,7)
+        self.assertTrue(schedule.is_valid_slot(datetime(2030,5,6,16,55),monday))
+        self.assertFalse(schedule.is_valid_slot(datetime(2030,5,7,16,55),monday))
+        token=storage.create_event('booking','2030-05-06T16:55','2030-05-06T17:35','测试',
+                                   topic='学习焦虑',session_type='after_school')
+        self.assertEqual(storage.get_event(token)['ends_at'],'2030-05-06T17:35')
+        with self.assertRaisesRegex(ValueError,'刚刚被预约'):
+            storage.create_event('walkin','2030-05-06T17:10','2030-05-06T17:25','测试')
+
+    def test_migration_of_existing_events_adds_topic_and_type(self):
+        import sqlite3
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            storage.DB_PATH=tmp+'/legacy.sqlite3'
+            with sqlite3.connect(storage.DB_PATH) as db:
+                db.execute("CREATE TABLE events (id TEXT PRIMARY KEY,kind TEXT NOT NULL,student TEXT, "
+                           "student_class TEXT,note TEXT,starts_at TEXT,ends_at TEXT,status TEXT,created_at TEXT)")
+                db.execute("INSERT INTO events VALUES ('old1','booking','旧学生','','', '2030-05-06T11:15', '2030-05-06T12:05','active','2029-01-01')")
+            storage.init_db()
+            old=storage.get_event('old1')
+            self.assertEqual(old['student'],'旧学生')
+            self.assertEqual(old['topic'],'')
+            self.assertEqual(old['session_type'],'regular')
 
     def test_teacher_rescheduled_period_changes_student_options(self):
         from datetime import datetime
