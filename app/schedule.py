@@ -11,7 +11,10 @@ MIN_ADVANCE_HOURS = int(os.getenv('MIN_ADVANCE_HOURS', '0'))
 WORKDAYS = set(int(x) for x in os.getenv('WORKDAYS', '0,1,2,3,4').split(',') if x.strip())
 # A single continuous availability window includes lunch and after-school time.
 # The teacher's weekly lessons, school exercise and occupied events are removed later.
-WINDOWS = [(os.getenv('DAY_START', '08:00'), os.getenv('DAY_END', '17:35'))]
+# Fixed policy: no student booking may start before 10:00, even if an old .env still says 08:00.
+configured_start = time.fromisoformat(os.getenv('DAY_START', '10:00'))
+effective_start = max(configured_start, time(10, 0))
+WINDOWS = [(effective_start.strftime('%H:%M'), os.getenv('DAY_END', '17:35'))]
 
 
 def now_local():
