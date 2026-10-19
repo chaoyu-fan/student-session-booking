@@ -19,12 +19,7 @@ def now_local():
 
 
 def slots_for_day(day, now=None):
-    """Each option starts at a school bell, and occupies exactly SESSION_MINUTES.
-
-    For example period 4: bell 11:15-12:00, counseling 11:15-12:05.
-    Period 8: bell 16:55-17:35, but a 50-minute session overruns 17:35,
-    so there is no 8th-period booking option.
-    """
+    """Standard bell slots last 50m; period 8 lasts 40m, and emergency 20m."""
     now = now if now is not None else now_local()
     if not isinstance(day, date) or day.weekday() not in WORKDAYS:
         return []
@@ -40,12 +35,23 @@ def slots_for_day(day, now=None):
     result = []
     for p in periods:
         start = datetime.combine(day, time.fromisoformat(p['starts_at']))
-        end = start + timedelta(minutes=SESSION_MINUTES)
+        # The after-school period is 16:55–17:35, so book it as 40m instead of 50m.
+        end = (datetime.combine(day, time.fromisoformat(p['ends_at'])) if p['period'] == 8
+               else start + timedelta(minutes=SESSION_MINUTES))
         if (start >= opening and end <= closing and
             start >= now + timedelta(hours=MIN_ADVANCE_HOURS) and
             not any(start < right and end > left for left, right in blocked)):
             result.append((start, end))
-    return result
+    # Emergency consultation is an explicit exception to the 10:00 cutoff and
+    # 09:45–10:15 morning exercise; it never ignores actual teaching lessons.
+    if day.weekday() in range(4):  # Monday–Thursday only
+        emergency_start = datetime.combine(day, time(9, 50))
+        emergency_end = datetime.combine(day, time(10, 10))
+        teaching = storage.public_teaching_intervals(day)
+        if (teaching is not None and emergency_start >= now + timedelta(hours=MIN_ADVANCE_HOURS)
+                and not any(emergency_start < right and emergency_end > left for left, right in teaching)):
+            result.append((emergency_start, emergency_end))
+    return sorted(result)
 
 
 def is_valid_slot(start,now=None):
