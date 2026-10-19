@@ -35,6 +35,8 @@ class WebTests(unittest.TestCase):
         page=self.client.get('/')
         self.assertEqual(page.status_code,200)
         self.assertIn('预约会谈时间'.encode(),page.data)
+        self.assertIn('第'.encode(),page.data)
+        self.assertNotIn('10:30–11:20'.encode(),page.data)
         with self.client.session_transaction() as sess: csrf=sess['_csrf']
         start=self.web.candidate_days()[0]['times'][0]['value']
         post=self.client.post('/book',data={'csrf':csrf,'starts_at':start,'name':'测试学生','student_class':'示例班'})
