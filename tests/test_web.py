@@ -35,18 +35,36 @@ class WebTests(unittest.TestCase):
         page=self.client.get('/')
         self.assertEqual(page.status_code,200)
         self.assertIn('预约会谈时间'.encode(),page.data)
-        self.assertIn('第'.encode(),page.data)
-        self.assertNotIn('10:30–11:20'.encode(),page.data)
         with self.client.session_transaction() as sess: csrf=sess['_csrf']
         start=self.web.candidate_days()[0]['times'][0]['value']
-        post=self.client.post('/book',data={'csrf':csrf,'starts_at':start,'name':'测试学生','student_class':'示例班'})
+        post=self.client.post('/book',data={'csrf':csrf,'starts_at':start,'name':'测试学生','student_class':'示例班','topic':'学习焦虑'})
         self.assertEqual(post.status_code,303)
         receipt=self.client.get(post.location)
         self.assertIn('预约成功'.encode(),receipt.data)
         self.assertNotIn('测试学生'.encode(),self.client.get('/').data)
-        duplicate=self.client.post('/book',data={'csrf':csrf,'starts_at':start,'name':'其他学生'})
+        duplicate=self.client.post('/book',data={'csrf':csrf,'starts_at':start,'name':'其他学生','topic':'其他'})
         self.assertEqual(duplicate.status_code,302)
         self.assertEqual(len(self.web.storage.list_events(start[:10],start[:10]+'Z')),1)
+
+    def test_emergency_and_topic_options_are_rendered(self):
+        from datetime import datetime
+        from unittest.mock import patch
+        with patch.object(self.web.schedule, 'now_local', return_value=datetime(2030,5,6,7)):
+            page=self.client.get('/')
+            self.assertIn('紧急咨询'.encode(),page.data)
+            self.assertIn('09:50–10:10'.encode(),page.data)
+            self.assertIn('学习焦虑'.encode(),page.data)
+            self.assertIn('躯体化症状'.encode(),page.data)
+            self.assertIn('第8节'.encode(),page.data)
+            with self.client.session_transaction() as sess: csrf=sess['_csrf']
+            no_topic=self.client.post('/book',data={'csrf':csrf,'name':'测试学生','starts_at':'2030-05-06T09:50'})
+            self.assertEqual(no_topic.status_code,302)
+            allowed=self.client.post('/book',data={'csrf':csrf,'name':'测试学生','topic':'适应困难','starts_at':'2030-05-06T09:50'})
+            self.assertEqual(allowed.status_code,303)
+            self.assertIn('紧急咨询'.encode(),self.client.get(allowed.location).data)
+            record=self.web.storage.get_event(allowed.location.split('/')[-1])
+            self.assertEqual(record['ends_at'],'2030-05-06T10:10')
+            self.assertEqual(record['topic'],'适应困难')
 
     def test_admin_displays_exercise_and_afterschool_period(self):
         self.client.get('/admin/login')
