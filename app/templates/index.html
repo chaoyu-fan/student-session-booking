@@ -5,7 +5,7 @@
 <input type="hidden" name="csrf" value="{{csrf_token()}}">
 <div class="trap"><label>请留空<input type="text" name="website" tabindex="-1" autocomplete="off"></label></div>
 <h2>① 选择可预约时间</h2>
-<p class="hint">选择一个老师没课的节次。每次会谈50分钟，按学校铃声时间开始，可能延续到下课后5分钟；第8节只有40分钟，暂不开放。</p>
+<p class="hint">普通咨询按学校空课节次预约（50分钟）；第8节课后服务可约40分钟。周一至周四额外开放09:50–10:10紧急咨询（20分钟），无需邮箱确认。</p>
 <div class="days">
 {% for d in days %}
 <div class="day"><div class="daytitle">{{d.label}}</div><div class="times">
@@ -16,8 +16,10 @@
 <h2>② 填写必要信息</h2>
 <div class="form-grid"><label>姓名 <span class="required">*</span><input name="name" minlength="2" maxlength="30" autocomplete="name" required placeholder="填写你的姓名"></label>
 <label>班级（可选）<input name="student_class" maxlength="40" placeholder="例如 六年级2班"></label></div>
+<label class="field">咨询主题 <span class="required">*</span>
+<select name="topic" required><option value="" selected disabled>请选择咨询主题</option>{% for topic in topics %}<option value="{{topic}}">{{topic}}</option>{% endfor %}</select></label>
 {% if access_code %}<label class="field">校内预约码 <span class="required">*</span><input name="access_code" required autocomplete="off" placeholder="由老师提供"></label>{% endif %}
-<p class="privacy">仅用于识别预约，不需要填写心理问题、诊断或咨询原因。不会向其他学生显示你的身份。</p>
+<p class="privacy">咨询主题仅用于老师提前准备，不需要描述具体经历、诊断或病史；不会向其他学生显示。紧急咨询预约不代表实时危机处置，如有即时危险，请联系学校现有紧急求助渠道。</p>
 <button class="primary" type="submit">确认预约</button>
 </form>
 {% else %}<div class="card"><h2>暂时没有可预约的时间</h2><p>{% if not school_confirmed %}老师正在核对学校课程表和上下课时间，预约暂未开放。{% else %}请过一段时间再查看，或者通过学校现有方式与老师联系。{% endif %}</p></div>{% endif %}
