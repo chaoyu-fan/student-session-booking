@@ -17,6 +17,8 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 
 from . import schedule, storage
 
+TOPICS = ('学习焦虑','人际关系困扰','情绪低落','适应困难','躯体化症状','其他')
+
 app=Flask(__name__)
 if not os.getenv('SESSION_SECRET') or not os.getenv('ADMIN_PASSWORD_HASH'):
     raise RuntimeError('SESSION_SECRET and ADMIN_PASSWORD_HASH are required. Run scripts/init.sh.')
@@ -74,7 +76,12 @@ def candidate_days():
         times=[]
         for s,e in schedule.slots_for_day(d):
             if not any(ev['starts_at']<schedule.fmt(e) and ev['ends_at']>schedule.fmt(s) for ev in busy):
-                times.append({'value':schedule.fmt(s),'label':f"第{period_by_start[s.strftime('%H:%M')]}节 · {s:%H:%M}–{e:%H:%M}"})
+                if s.strftime('%H:%M') == '09:50':
+                    label = '紧急咨询 · 09:50–10:10（20分钟）'
+                else:
+                    period = period_by_start[s.strftime('%H:%M')]
+                    label = f"第{period}节 · {s:%H:%M}–{e:%H:%M}" + ('（课后服务40分钟）' if period == 8 else '')
+                times.append({'value':schedule.fmt(s),'label':label})
         if times:
             result.append({'day':d.isoformat(),'label':f'{d.month}月{d.day}日 · {"一二三四五六日"[d.weekday()]}','times':times})
     return result
@@ -89,7 +96,7 @@ def health():
 
 @app.get('/')
 def index():
-    return render_template('index.html',days=candidate_days(),access_code=bool(os.getenv('BOOKING_ACCESS_CODE')),school_confirmed=storage.school_snapshot()['confirmed'])
+    return render_template('index.html',days=candidate_days(),topics=TOPICS,access_code=bool(os.getenv('BOOKING_ACCESS_CODE')),school_confirmed=storage.school_snapshot()['confirmed'])
 
 
 @app.post('/book')
@@ -105,6 +112,10 @@ def book():
         return redirect(url_for('index'))
     name=request.form.get('name','').strip()
     student_class=request.form.get('student_class','').strip()
+    topic=request.form.get('topic','').strip()
+    if topic not in TOPICS:
+        flash('请选择咨询主题')
+        return redirect(url_for('index'))
     if len(name)<2 or len(name)>30 or len(student_class)>40:
         flash('请填写有效的姓名，班级不能超过 40 字')
         return redirect(url_for('index'))
@@ -115,9 +126,16 @@ def book():
     if not schedule.is_valid_slot(start):
         flash('这个时间目前不可预约，请重新选择')
         return redirect(url_for('index'))
-    end=start+timedelta(minutes=schedule.SESSION_MINUTES)
+    # Derive duration and type from the authoritative timetable, never from POST data.
+    matching=[end for s,end in schedule.slots_for_day(start.date()) if s==start]
+    if not matching:
+        flash('这个时间目前不可预约，请重新选择')
+        return redirect(url_for('index'))
+    end=matching[0]
+    session_type=('emergency' if start.strftime('%H:%M')=='09:50' else
+                  'after_school' if start.strftime('%H:%M')==storage.school_snapshot()['periods'][7]['starts_at'] else 'regular')
     try:
-        token=storage.create_event('booking',schedule.fmt(start),schedule.fmt(end),name,student_class)
+        token=storage.create_event('booking',schedule.fmt(start),schedule.fmt(end),name,student_class,topic=topic,session_type=session_type)
     except ValueError as ex:
         flash(str(ex))
         return redirect(url_for('index'))
