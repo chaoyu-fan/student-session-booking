@@ -3,7 +3,7 @@
 <form method="post" action="/admin/logout"><input type="hidden" name="csrf" value="{{csrf_token()}}"><button class="small" type="submit">安全退出</button></form></div>
 <div class="card" id="school-schedule">
 <h2>学校课程表 · 每周自动屏蔽授课时间</h2>
-<p class="hint">已根据真实学校可能存在的八节课结构提供演示铃声时间；<strong>不是本校确认时间</strong>。请先填写学校实际上下课时间、每周课程，再点击“确认课表并开放预约”。系统会自动屏蔽上课时间及前后各 10 分钟。</p>
+<p class="hint">已录入老师提供的实际铃声时间：第1–7节每节45分钟，第8节为16:55–17:35的<strong>40分钟课后服务</strong>。第2节后09:45–10:15为30分钟课间操。请仍核对每周具体任课班级，再启用预约。系统默认将固定课程前后各10分钟设为不可预约。</p>
 <p class="status-line"><strong>状态：</strong>{% if school.confirmed %}<span class="enabled">课程时间已确认，预约已开放</span>{% else %}<span class="pending">尚未确认，学生预约暂停</span>{% endif %}</p>
 <form method="post" action="/admin/school/import" enctype="multipart/form-data" class="school-import">
 <input type="hidden" name="csrf" value="{{csrf_token()}}">
@@ -13,12 +13,17 @@
 <input type="hidden" name="csrf" value="{{csrf_token()}}">
 <div class="period-inputs">
 {% for period in school.periods %}
-<label>第{{period.period}}节 <input type="time" name="start_{{period.period}}" value="{{period.starts_at}}" required> 至 <input type="time" name="end_{{period.period}}" value="{{period.ends_at}}" required></label>
+<label>第{{period.period}}节{% if period.period == 8 %}（课后服务 · 40分钟）{% endif %} <input type="time" name="start_{{period.period}}" value="{{period.starts_at}}" required> 至 <input type="time" name="end_{{period.period}}" value="{{period.ends_at}}" required></label>
 {% endfor %}
 </div>
+<div class="school-exercise"><strong>课间操（周一至周五，30分钟）</strong>
+<label>开始 <input type="time" name="exercise_start" value="{{school.exercise.starts_at}}" required></label>
+<label>结束 <input type="time" name="exercise_end" value="{{school.exercise.ends_at}}" required></label>
+<label><input type="checkbox" name="exercise_enabled" {% if school.exercise.enabled %}checked{% endif %}> 设为学生不可预约时间</label>
+<p class="hint">课间操不是一节课，会单独屏蔽，不附加课程缓冲。若是从旧版本升级且已启用预约，请确认此开关已打开。</p></div>
 <div class="scroll-table"><table class="school-grid">
 <thead><tr><th>节次</th>{% for day in ['星期一','星期二','星期三','星期四','星期五'] %}<th>{{day}}</th>{% endfor %}</tr></thead>
-<tbody>{% for period in school.periods %}<tr><th>第{{period.period}}节</th>{% for day in range(5) %}
+<tbody>{% for period in school.periods %}<tr><th>第{{period.period}}节{% if period.period == 8 %} · 课后服务{% endif %}</th>{% for day in range(5) %}
 <td><input aria-label="星期{{'一二三四五'[day]}}第{{period.period}}节" name="lesson_{{day}}_{{period.period}}" maxlength="40" placeholder="无课" value="{{school.lessons.get((day,period.period),'')}}"></td>
 {% endfor %}</tr>{% endfor %}</tbody></table></div>
 <p class="hint">例如填写「初一(8)」表示这一节给该班上课；留空代表没有固定课程。修改已确认的课表时，如果与现有学生预约冲突，系统会拒绝保存，避免悄悄覆盖预约。</p>

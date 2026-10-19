@@ -46,6 +46,17 @@ class WebTests(unittest.TestCase):
         self.assertEqual(duplicate.status_code,302)
         self.assertEqual(len(self.web.storage.list_events(start[:10],start[:10]+'Z')),1)
 
+    def test_admin_displays_exercise_and_afterschool_period(self):
+        self.client.get('/admin/login')
+        with self.client.session_transaction() as sess:
+            csrf=sess['_csrf']
+        self.client.post('/admin/login',data={'csrf':csrf,'username':'teacher','password':'TestSecretJustForTests'})
+        page=self.client.get('/admin')
+        self.assertIn('课间操'.encode(),page.data)
+        self.assertIn('课后服务'.encode(),page.data)
+        self.assertIn(b'name="exercise_start"',page.data)
+        self.assertIn(b'value="09:45"',page.data)
+
     def test_csrf_and_teacher(self):
         self.assertIn(self.client.get('/admin').status_code,(301,302))
         self.assertEqual(self.client.post('/book',data={'name':'测试学生'}).status_code,400)

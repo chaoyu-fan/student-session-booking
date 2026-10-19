@@ -8,6 +8,19 @@ from pathlib import Path
 
 DB_PATH = os.getenv('DB_PATH', '/data/booking.sqlite3')
 
+# Confirmed local bell times provided by the teacher, not a generic online template.
+DEFAULT_BELLS = [
+    ('08:00', '08:45'), ('09:00', '09:45'), ('10:15', '11:00'),
+    ('11:15', '12:00'), ('14:00', '14:45'), ('15:00', '15:45'),
+    ('16:00', '16:45'), ('16:55', '17:35'),  # 第八节：40-minute after-school service
+]
+DEFAULT_EXERCISE = ('09:45', '10:15')  # school-wide morning exercise
+REFERENCE_BELLS = [
+    ('08:00', '08:40'), ('08:55', '09:35'), ('10:05', '10:45'),
+    ('11:00', '11:40'), ('12:40', '13:20'), ('13:35', '14:15'),
+    ('14:30', '15:10'), ('15:25', '16:05'),
+]
+
 
 @contextmanager
 def connect():
@@ -53,18 +66,30 @@ def init_db():
         CREATE TABLE IF NOT EXISTS app_settings (
           key TEXT PRIMARY KEY, value TEXT NOT NULL
         );
+        CREATE TABLE IF NOT EXISTS school_activities (
+          code TEXT PRIMARY KEY,
+          starts_at TEXT NOT NULL, ends_at TEXT NOT NULL,
+          enabled INTEGER NOT NULL DEFAULT 1 CHECK(enabled IN (0,1))
+        );
         ''')
-        # Example bell times only. No real teacher timetable is committed to GitHub.
-        # Schedule must be confirmed in the admin UI before student bookings open.
-        sample = [
-            ('08:00', '08:40'), ('08:55', '09:35'), ('10:05', '10:45'),
-            ('11:00', '11:40'), ('12:40', '13:20'), ('13:35', '14:15'),
-            ('14:30', '15:10'), ('15:25', '16:05'),
-        ]
-        for i, (begin, end) in enumerate(sample, start=1):
+        db.execute("INSERT OR IGNORE INTO app_settings(key,value) VALUES('school_confirmed','0')")
+        confirmed = is_school_confirmed(db)
+        for i, (begin, end) in enumerate(DEFAULT_BELLS, start=1):
             db.execute('INSERT OR IGNORE INTO school_periods(period,starts_at,ends_at) VALUES(?,?,?)',
                        (i,begin,end))
-        db.execute("INSERT OR IGNORE INTO app_settings(key,value) VALUES('school_confirmed','0')")
+        current = [(r['starts_at'], r['ends_at']) for r in
+                   db.execute('SELECT starts_at,ends_at FROM school_periods ORDER BY period')]
+        # Migrate only untouched *unconfirmed* sample values. Preserve any already
+        # activated or customized bell times; the teacher must approve changes.
+        if not confirmed and current == REFERENCE_BELLS:
+            for i, (begin, end) in enumerate(DEFAULT_BELLS, start=1):
+                db.execute('UPDATE school_periods SET starts_at=?,ends_at=? WHERE period=?',
+                           (begin,end,i))
+        # On older confirmed deployments, do not unexpectedly introduce a new
+        # restriction. Teacher enables the exercise block when reconfirming.
+        db.execute('''INSERT OR IGNORE INTO school_activities(code,starts_at,ends_at,enabled)
+                      VALUES('morning_exercise',?,?,?)''',
+                   (*DEFAULT_EXERCISE, 0 if confirmed else 1))
 
 
 def is_school_confirmed(db):
@@ -76,7 +101,9 @@ def school_snapshot():
     with connect() as db:
         periods=[dict(row) for row in db.execute('SELECT * FROM school_periods ORDER BY period')]
         classes={(row['weekday'],row['period']):row['class_name'] for row in db.execute('SELECT * FROM teacher_lessons')}
-        return {'confirmed':is_school_confirmed(db),'periods':periods,'lessons':classes}
+        exercise=dict(db.execute("SELECT starts_at,ends_at,enabled FROM school_activities WHERE code='morning_exercise'").fetchone())
+        return {'confirmed':is_school_confirmed(db),'periods':periods,'lessons':classes,
+                'exercise':exercise}
 
 
 def teaching_intervals(db, day, buffer_minutes=None):
@@ -92,12 +119,21 @@ def teaching_intervals(db, day, buffer_minutes=None):
     return result
 
 
-def overlaps_teaching(db,start,end):
+def school_intervals(db, day):
+    result = teaching_intervals(db, day)
+    if day.weekday() < 5:
+        row = db.execute("SELECT starts_at,ends_at,enabled FROM school_activities WHERE code='morning_exercise'").fetchone()
+        if row and row['enabled']:
+            result.append((datetime.combine(day,time.fromisoformat(row['starts_at'])),
+                           datetime.combine(day,time.fromisoformat(row['ends_at']))))
+    return result
+
+
+def overlaps_school(db,start,end):
     begin=datetime.fromisoformat(start)
     finish=datetime.fromisoformat(end)
-    # Single-day teacher bookings are enforced at the HTTP layer; also check next-day boundaries.
     for day in {begin.date(),finish.date()}:
-        if any(begin<right and finish>left for left,right in teaching_intervals(db,day)):
+        if any(begin<right and finish>left for left,right in school_intervals(db,day)):
             return True
     return False
 
@@ -106,10 +142,21 @@ def public_school_intervals(day):
     with connect() as db:
         if not is_school_confirmed(db):
             return None
-        return teaching_intervals(db,day)
+        return school_intervals(db,day)
 
 
-def save_school_schedule(periods, lessons, activate):
+def parse_interval(start, end, label):
+    try:
+        begin = time.fromisoformat(start)
+        finish = time.fromisoformat(end)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f'{label}时间格式错误') from exc
+    if begin >= finish:
+        raise ValueError(f'{label}结束时间必须晚于开始时间')
+    return begin, finish
+
+
+def save_school_schedule(periods, lessons, activate, exercise=None, exercise_enabled=None):
     # Atomically change rules. Refuse any change that would conflict with an already
     # confirmed booking or walk-in; teacher must first resolve those appointments.
     if len(periods)!=8 or any(len(s)>40 for s in lessons.values()):
@@ -118,13 +165,7 @@ def save_school_schedule(periods, lessons, activate):
         raise ValueError('课程表目前为空，请先填入老师的固定授课节次再开放预约')
     parsed=[]
     for i, (begin,end) in enumerate(periods,start=1):
-        try:
-            a=time.fromisoformat(begin); b=time.fromisoformat(end)
-        except ValueError as exc:
-            raise ValueError(f'第{i}节时间格式错误') from exc
-        if a>=b:
-            raise ValueError(f'第{i}节结束时间必须晚于开始时间')
-        parsed.append((a,b))
+        parsed.append(parse_interval(begin,end,f'第{i}节'))
     if any(parsed[i][1]>parsed[i+1][0] for i in range(7)):
         raise ValueError('课程节次时间不能互相重叠，且必须按顺序排列')
     if any(day not in range(5) or period not in range(1,9) for day,period in lessons):
@@ -133,6 +174,13 @@ def save_school_schedule(periods, lessons, activate):
         db.execute('BEGIN IMMEDIATE')
         for i,(begin,end) in enumerate(periods,start=1):
             db.execute('UPDATE school_periods SET starts_at=?,ends_at=? WHERE period=?',(begin,end,i))
+        if exercise is not None:
+            begin,end=exercise
+            parse_interval(begin,end,'课间操')
+            db.execute("UPDATE school_activities SET starts_at=?,ends_at=? WHERE code='morning_exercise'",(begin,end))
+        if exercise_enabled is not None:
+            db.execute("UPDATE school_activities SET enabled=? WHERE code='morning_exercise'",
+                       (int(bool(exercise_enabled)),))
         db.execute('DELETE FROM teacher_lessons')
         for (day,period),class_name in lessons.items():
             if class_name.strip():
@@ -142,8 +190,8 @@ def save_school_schedule(periods, lessons, activate):
             WHERE status='active' AND kind IN ('booking','walkin') AND ends_at >= ?''',
             (datetime.now().strftime('%Y-%m-%d'),)).fetchall()
         for e in future:
-            if overlaps_teaching(db,e['starts_at'],e['ends_at']):
-                raise ValueError('新课表与已确认的学生预约/临时会谈冲突，请先处理预约后再保存')
+            if overlaps_school(db,e['starts_at'],e['ends_at']):
+                raise ValueError('新课表或课间操与已确认的学生预约/临时会谈冲突，请先处理预约后再保存')
         db.execute('UPDATE app_settings SET value=? WHERE key=?',('1' if activate else '0','school_confirmed'))
         db.commit()
 
@@ -166,8 +214,8 @@ def create_event(kind,start,end,student='',student_class='',note=''):
         db.execute('BEGIN IMMEDIATE')
         if kind=='booking' and not is_school_confirmed(db):
             raise ValueError('老师尚未核对课程铃声时间，暂不开放预约')
-        if kind in ('booking','walkin') and overlaps_teaching(db,start,end):
-            raise ValueError('这个时段与老师的固定授课时间冲突')
+        if kind in ('booking','walkin') and overlaps_school(db,start,end):
+            raise ValueError('这个时段与老师的固定授课时间或课间操冲突')
         if overlaps(db,start,end):
             db.rollback()
             raise ValueError('这个时段刚刚被预约或占用，请选择其他时间')

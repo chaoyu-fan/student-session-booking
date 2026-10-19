@@ -18,5 +18,6 @@ obj=json.loads(args.file.read_text(encoding='utf-8'))
 lessons={(int(row['weekday']),int(row['period'])):str(row['class_name'])
          for row in obj['lessons']}
 storage.init_db()
-storage.save_school_schedule(obj['periods'],lessons,args.activate)
+storage.save_school_schedule(obj['periods'],lessons,args.activate,
+                             exercise=tuple(obj['exercise']) if 'exercise' in obj else None)
 print('学校课表已导入。状态：' + ('已确认启用' if args.activate else '草稿；学生预约暂停'))

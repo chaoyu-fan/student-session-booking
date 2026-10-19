@@ -207,7 +207,10 @@ def save_school():
         periods=[(request.form[f'start_{n}'],request.form[f'end_{n}']) for n in range(1,9)]
         lessons={(day,n):request.form.get(f'lesson_{day}_{n}','').strip()
                  for n in range(1,9) for day in range(5)}
-        storage.save_school_schedule(periods,lessons,action=='activate')
+        exercise=(request.form['exercise_start'],request.form['exercise_end'])
+        exercise_enabled=request.form.get('exercise_enabled')=='on'
+        storage.save_school_schedule(periods,lessons,action=='activate',
+                                     exercise=exercise,exercise_enabled=exercise_enabled)
         flash('课程表已保存并开放预约' if action=='activate' else '已保存课表草稿；当前学生预约暂停')
     except (ValueError,KeyError) as ex:
         flash(str(ex))
@@ -229,7 +232,8 @@ def import_school():
                  for row in obj['lessons']}
         if len(lessons)!=len(obj['lessons']):
             raise ValueError('课表有重复节次')
-        storage.save_school_schedule(periods,lessons,False)
+        exercise=tuple(obj['exercise']) if 'exercise' in obj else None
+        storage.save_school_schedule(periods,lessons,False,exercise=exercise)
         flash('课程表已导入为草稿，请逐项核对实际铃声时间后再开放预约')
     except (ValueError,KeyError,TypeError,UnicodeDecodeError,json.JSONDecodeError) as ex:
         flash(f'课表文件无效：{ex}')

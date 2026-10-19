@@ -38,4 +38,8 @@
 - [ ] Students cannot book during recurring class hours including 10-minute buffers.
 - [ ] Admin walk-in is refused when it overlaps a recurring class.
 - [ ] Changing school times does not silently invalidate existing bookings.
+- [ ] New database defaults match the eight exact periods in docs/SCHOOL-HOURS.md; periods 1–7 are 45m, period 8 is a **40m after-school service**.
+- [ ] School-wide morning exercise 09:45–10:15 is independently blocked Mon–Fri even when the teacher has no class, and is configurable in admin.
+- [ ] Importing the teacher's private weekly lesson JSON preserves the correct after-school lesson on Tuesday, period 8.
+- [ ] Upgrading an unconfirmed reference timetable fills confirmed bell times; upgrading a previously activated customized schedule does not silently overwrite it.
 - [ ] Teacher confirms pupils can actually attend sessions (teacher free alone is not sufficient).

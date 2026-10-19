@@ -20,7 +20,7 @@ class BookingStoreTests(unittest.TestCase):
         self.temp.cleanup()
 
     def test_double_booking_serialized(self):
-        s='2030-05-06T10:00'; e='2030-05-06T10:50'
+        s='2030-05-06T11:00'; e='2030-05-06T11:50'
         def book_one(_):
             try:
                 storage.create_event('booking',s,e,'测试学生')
@@ -33,15 +33,15 @@ class BookingStoreTests(unittest.TestCase):
         self.assertEqual(results.count('blocked'),3)
 
     def test_partial_overlap_rejected(self):
-        storage.create_event('booking','2030-05-06T10:00','2030-05-06T10:50','测试')
+        storage.create_event('booking','2030-05-06T11:00','2030-05-06T11:50','测试')
         with self.assertRaises(ValueError):
-            storage.create_event('walkin','2030-05-06T10:30','2030-05-06T11:20','测试二')
-        storage.create_event('block','2030-05-06T10:50','2030-05-06T11:10')
+            storage.create_event('walkin','2030-05-06T11:30','2030-05-06T12:20','测试二')
+        storage.create_event('block','2030-05-06T11:50','2030-05-06T12:10')
 
     def test_cancel_releases_slot(self):
-        token=storage.create_event('booking','2030-05-06T10:00','2030-05-06T10:50','测试')
+        token=storage.create_event('booking','2030-05-06T11:00','2030-05-06T11:50','测试')
         self.assertTrue(storage.cancel_event(token))
-        storage.create_event('booking','2030-05-06T10:00','2030-05-06T10:50','测试二')
+        storage.create_event('booking','2030-05-06T11:00','2030-05-06T11:50','测试二')
 
     def test_school_schedule_requires_confirmation(self):
         storage.save_school_schedule(self.periods,{(0,2):'初一(8)'},False)
@@ -51,16 +51,16 @@ class BookingStoreTests(unittest.TestCase):
 
     def test_teacher_class_blocks_recurring_booking_and_walkin(self):
         storage.save_school_schedule(self.periods,{(0,3):'初二(9)'},True)
-        # May 6, 2030 is a Monday. Period 3: 10:05-10:45, +10min buffer.
+        # May 6, 2030 is a Monday. Period 3: 10:15-11:00, +10min buffer.
         self.assertEqual(__import__('datetime').date(2030,5,6).weekday(),0)
         with self.assertRaisesRegex(ValueError, '固定授课'):
-            storage.create_event('booking','2030-05-06T10:00','2030-05-06T10:50','测试')
+            storage.create_event('booking','2030-05-06T11:00','2030-05-06T11:50','测试')
         with self.assertRaisesRegex(ValueError, '固定授课'):
-            storage.create_event('walkin','2030-05-13T09:55','2030-05-13T10:15','测试')
+            storage.create_event('walkin','2030-05-13T10:10','2030-05-13T10:30','测试')
         storage.create_event('booking','2030-05-06T16:30','2030-05-06T17:20','测试')
 
     def test_reject_course_edit_conflicting_with_existing_appointment(self):
-        storage.create_event('booking','2030-05-06T10:00','2030-05-06T10:50','测试')
+        storage.create_event('booking','2030-05-06T11:00','2030-05-06T11:50','测试')
         with self.assertRaisesRegex(ValueError,'已确认'):
             storage.save_school_schedule(self.periods,{(0,3):'初二(9)'},True)
         self.assertEqual(storage.school_snapshot()['lessons'],{(0,1):'测试课堂'})
@@ -71,6 +71,53 @@ class BookingStoreTests(unittest.TestCase):
         spans=schedule.slots_for_day(now.date(),now)
         self.assertFalse(any(s.hour==10 for s,e in spans))
         self.assertTrue(any(s.hour==16 for s,e in spans))
+
+    def test_exact_bell_times_and_exercise(self):
+        snap=storage.school_snapshot()
+        self.assertEqual([(p['starts_at'], p['ends_at']) for p in snap['periods']], [
+            ('08:00','08:45'),('09:00','09:45'),('10:15','11:00'),('11:15','12:00'),
+            ('14:00','14:45'),('15:00','15:45'),('16:00','16:45'),('16:55','17:35')])
+        self.assertEqual(snap['exercise']['starts_at'], '09:45')
+        self.assertEqual(snap['exercise']['ends_at'], '10:15')
+        self.assertEqual(snap['exercise']['enabled'], 1)
+        self.assertEqual(__import__('datetime').datetime.strptime('17:35','%H:%M')-__import__('datetime').datetime.strptime('16:55','%H:%M'), timedelta(minutes=40))
+
+    def test_exercise_blocks_even_if_teacher_has_no_class(self):
+        storage.save_school_schedule(self.periods,{(0,1):'测试课堂'},True)
+        with self.assertRaisesRegex(ValueError, '课间操'):
+            storage.create_event('booking','2030-05-06T09:35','2030-05-06T10:25','测试')
+        with self.assertRaisesRegex(ValueError, '课间操'):
+            storage.create_event('walkin','2030-05-13T10:05','2030-05-13T10:25','测试')
+        now=__import__('datetime').datetime(2030,5,6,7,0)
+        slots=schedule.slots_for_day(now.date(),now)
+        self.assertFalse(any(s.hour in (9,10) for s,e in slots))
+        self.assertTrue(any(s.hour==11 for s,e in slots))
+
+    def test_eighth_period_is_forty_minute_afterschool_only_when_assigned(self):
+        storage.save_school_schedule(self.periods,{(1,8):'测试课后服务'},True)
+        with self.assertRaisesRegex(ValueError,'固定授课'):
+            storage.create_event('walkin','2030-05-07T17:00','2030-05-07T17:20','测试')
+        # On Wednesday, the teacher has no 8th-period lesson.
+        storage.create_event('walkin','2030-05-08T17:00','2030-05-08T17:20','测试')
+
+    def test_migration_only_replaces_legacy_unconfirmed_bell_template(self):
+        with storage.connect() as db:
+            for i,(begin,end) in enumerate(storage.REFERENCE_BELLS,1):
+                db.execute('UPDATE school_periods SET starts_at=?,ends_at=? WHERE period=?',(begin,end,i))
+        storage.init_db()
+        # This setUp activated the timetable; active custom times MUST NOT be overwritten.
+        self.assertEqual(storage.school_snapshot()['periods'][1]['ends_at'],'09:35')
+        storage.pause_school_bookings()
+        storage.init_db()
+        self.assertEqual(storage.school_snapshot()['periods'][1]['ends_at'],'09:45')
+
+    def test_exercise_change_does_not_replace_confirmed_booking(self):
+        storage.save_school_schedule(self.periods,{(0,1):'测试课堂'},True,exercise_enabled=False)
+        storage.create_event('booking','2030-05-06T09:30','2030-05-06T10:20','测试')
+        with self.assertRaisesRegex(ValueError,'已确认'):
+            storage.save_school_schedule(self.periods,{(0,1):'测试课堂'},True,
+                                         exercise=('09:45','10:15'), exercise_enabled=True)
+        self.assertEqual(storage.school_snapshot()['exercise']['enabled'],0)
 
     def test_schedule(self):
         now=schedule.now_local()
