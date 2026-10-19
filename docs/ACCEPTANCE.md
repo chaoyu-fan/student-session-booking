@@ -35,7 +35,7 @@
 - [ ] Before bell-time confirmation the public booking page displays no slots.
 - [ ] Admin displays editable 8-period bell times and weekday × period class grid.
 - [ ] Actual teacher timetable is entered privately in the admin/database, not the public repository.
-- [ ] Students cannot book during recurring class hours including 10-minute buffers.
+- [ ] Students cannot book during recurring class hours; teaching buffer is 0 in this configuration.
 - [ ] Admin walk-in is refused when it overlaps a recurring class.
 - [ ] Changing school times does not silently invalidate existing bookings.
 - [ ] New database defaults match the eight exact periods in docs/SCHOOL-HOURS.md; periods 1–7 are 45m, period 8 is a **40m after-school service**.
@@ -46,7 +46,16 @@
 
 ## 照片预设与全天预约
 - [ ] 全新数据库自动创建22节固定授课，分布为周一至周五6/5/6/2/3节，并默认开放预约。
-- [ ] 每天只在08:00–17:35之间提供完整50分钟会谈候选时间，不允许延长至17:35之后。
+- [ ] 只显示10:00之后第3至第7节的50分钟会谈；最晚17:35结束。
 - [ ] 09:45–10:15课间操和22节固定课没有可预约的重叠时段；午间无课也可以被预约。
-- [ ] 课程缓冲为0，15分钟候选步长。线上已有预约仍然阻止重叠请求。
+- [ ] 课程缓冲为0，仅按实际课节铃声产生候选。线上已有预约仍然阻止重叠请求。
 - [ ] 从旧版迁移保留已确认预约和自定义课表；按要求重置课表前必须备份和检查冲突。
+
+
+## 仅按第几节预约（2026-10）
+- [ ] 学生选项包含「第几节 · 会谈开始–结束」，例如「第4节 · 11:15–12:05」。
+- [ ] 没有按15分钟滑动的候选、没有10:00前时段。
+- [ ] 照片课表下周一/三无可预约，周二第4/7节，周四第3/4/6节，周五第3/4节。
+- [ ] 第8节只有40分钟，所有会谈固定50分钟，不能在17:35前完整结束，因此不开放。
+- [ ] 午间12:00–14:00不另设独立会谈档（采用严格按节次模式）。
+- [ ] 后台添加已有预约/临时来访后，相交的节次自动隐藏；手动调整学校铃声后新节次时间生效。
