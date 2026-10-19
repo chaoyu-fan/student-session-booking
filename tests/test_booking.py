@@ -151,14 +151,14 @@ class PhotoPresetTests(unittest.TestCase):
         from datetime import datetime
         self.assertEqual(schedule.SESSION_MINUTES, 50)
         self.assertEqual(schedule.SLOT_MINUTES, 15)
-        self.assertEqual(schedule.WINDOWS, [('08:00','17:35')])
+        self.assertEqual(schedule.WINDOWS, [('10:00','17:35')])
         # Monday 2030-05-06: period 2 blocks 09:00–09:45.
         monday = datetime(2030,5,6,4,0)
         slots = schedule.slots_for_day(monday.date(), monday)
-        self.assertIn(('08:00','08:50'), [(s.strftime('%H:%M'),e.strftime('%H:%M')) for s,e in slots])
+        self.assertFalse(any(s.hour < 10 for s,e in slots))
         self.assertIn(('16:45','17:35'), [(s.strftime('%H:%M'),e.strftime('%H:%M')) for s,e in slots])
         self.assertFalse(any(s < datetime(2030,5,6,9,45) and e > datetime(2030,5,6,9,0) for s,e in slots))
-        self.assertTrue(all(s >= datetime(2030,5,6,8) and e <= datetime(2030,5,6,17,35) for s,e in slots))
+        self.assertTrue(all(s >= datetime(2030,5,6,10) and e <= datetime(2030,5,6,17,35) for s,e in slots))
         self.assertTrue(all(not (s < datetime(2030,5,6,10,15) and e > datetime(2030,5,6,9,45)) for s,e in slots))
 
     def test_lunch_available_on_free_day(self):
@@ -167,6 +167,8 @@ class PhotoPresetTests(unittest.TestCase):
         slots = schedule.slots_for_day(thursday.date(), thursday)
         self.assertTrue(any(s.hour==12 for s,e in slots))
         self.assertTrue(any(s.hour==13 for s,e in slots))
+        self.assertIn(('10:15','11:05'),[(s.strftime('%H:%M'),e.strftime('%H:%M')) for s,e in slots])
+        self.assertFalse(schedule.is_valid_slot(datetime(2030,5,9,9,30),thursday))
 
     def test_idempotent_and_preserves_custom_schedule(self):
         storage.init_db()
